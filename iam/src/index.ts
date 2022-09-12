@@ -11,7 +11,7 @@ import { router as procedureRouter } from "./procedures";
 import cors from "cors";
 
 // ---- Web3 packages
-import { utils } from "ethers";
+import { ethers, utils } from "ethers";
 
 // ---- Types
 import { Response } from "express";
@@ -31,6 +31,8 @@ import {
   issueHashedCredential,
   verifyCredential,
 } from "@gitcoin/passport-identity/dist/commonjs/src/credentials";
+
+const wallet = ethers.Wallet.fromMnemonic(process.env.MNEMONIC);
 
 // ---- Identity Provider Management
 import { Providers } from "./utils/providers";
@@ -303,7 +305,7 @@ const issueCredential = async (
 
       try {
         // generate a VC for the given payload
-        const { credential } = await issueHashedCredential(DIDKit, key, address, record);
+        const { credential } = await issueHashedCredential(DIDKit, key, address, record, wallet);
 
         return {
           record,

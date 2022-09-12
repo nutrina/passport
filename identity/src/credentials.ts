@@ -18,9 +18,10 @@ import * as base64 from "@ethersproject/base64";
 
 // --- Crypto lib for hashing
 import { createHash } from "crypto";
+import { ethers } from "ethers";
 
 // Keeping track of the hashing mechanism (algo + content)
-export const VERSION = "v0.0.0";
+export const VERSION = "v0.0.1";
 
 // Control expiry times of issued credentials
 export const CHALLENGE_EXPIRES_AFTER_SECONDS = 60; // 1min
@@ -42,6 +43,19 @@ export const objToSortedArray = (obj: { [k: string]: string }): string[][] => {
     return out;
   }, [] as string[][]);
 };
+
+const toBytes = (str: string) => {
+  const buffer = Buffer.from(str, "utf8");
+  const result = Array(buffer.length);
+  for (var i = 0; i < buffer.length; i++) {
+    result[i] = buffer[i];
+  }
+  return result;
+};
+
+function hashStamps(stamps: string[]) {
+  return ethers.utils.keccak256(toBytes(stamps.join()));
+}
 
 // Internal method to issue a verifiable credential
 const _issueCredential = async (
@@ -113,7 +127,8 @@ export const issueHashedCredential = async (
   DIDKit: DIDKitLib,
   key: string,
   address: string,
-  record: ProofRecord
+  record: ProofRecord,
+  signer: ethers.Wallet | undefined
 ): Promise<IssuedCredential> => {
   // Generate a hash like SHA256(IAM_PRIVATE_KEY+PII), where PII is the (deterministic) JSON representation
   // of the PII object after transforming it to an array of the form [[key:string, value:string], ...]
@@ -125,26 +140,41 @@ export const issueHashedCredential = async (
       .digest()
   );
 
-  // generate a verifiableCredential
-  const credential = await _issueCredential(DIDKit, key, CREDENTIAL_EXPIRES_AFTER_SECONDS, {
-    credentialSubject: {
-      "@context": [
-        {
-          hash: "https://schema.org/Text",
-          provider: "https://schema.org/Text",
-        },
-      ],
-      // construct a pkh DID on mainnet (:1) for the given wallet address
-      id: `did:pkh:eip155:1:${address}`,
-      provider: record.type,
-      hash: `${VERSION}:${hash}`,
-    },
-  });
+  try {
+    console.log("geri address", address);
+    console.log("geri record.type", record.type);
+    console.log("geri hash", hash);
 
-  // didkit-wasm-node returns credential as a string - parse for JSON
-  return {
-    credential,
-  } as IssuedCredential;
+    const preHash = hashStamps([address, record.type, hash]);
+    console.log("geri preHash", preHash);
+    console.log("geri hash", hash);
+    const signature = await signer.signMessage(ethers.utils.arrayify(preHash));
+    console.log("geri signature", signature);
+
+    // generate a verifiableCredential
+    const credential = await _issueCredential(DIDKit, key, CREDENTIAL_EXPIRES_AFTER_SECONDS, {
+      credentialSubject: {
+        "@context": [
+          {
+            hash: "https://schema.org/Text",
+            provider: "https://schema.org/Text",
+          },
+        ],
+        // construct a pkh DID on mainnet (:1) for the given wallet address
+        id: `did:pkh:eip155:1:${address}`,
+        provider: record.type,
+        hash: `${VERSION}:${hash}:${signature}`,
+      },
+    });
+
+    // didkit-wasm-node returns credential as a string - parse for JSON
+    return {
+      credential,
+    } as IssuedCredential;
+  } catch (e) {
+    console.error("geri error", e);
+    console.log("geri error", e);
+  }
 };
 
 // Verify that the provided credential is valid
